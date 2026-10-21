@@ -1,4 +1,5 @@
 import { resolveNonNegativeIntEnv } from '../../config/configuration';
+import type { SearchMatch } from './search.types';
 
 /**
  * Host-side /search pagination bounds. Applied in SearchService BEFORE delegating to any provider,
@@ -29,3 +30,22 @@ export const SEARCH_QUERY_MAX_LENGTH = 1000;
  * provider collapses repeats.
  */
 export const SEARCH_TERMS_MAX = 32;
+
+/** Every accepted `match` value, for the DTO, the OpenAPI enum and the MCP tool schema alike. */
+export const SEARCH_MATCH_MODES = ['word', 'contains'] as const satisfies readonly SearchMatch[];
+
+/**
+ * Shortest term a match=contains search can look up in a trigram index: a trigram is three characters,
+ * so a shorter term has none (SQLite's trigram table returns nothing for it, pg_trgm scans every row).
+ * A query needs at least one term this long; shorter ones only narrow what it found.
+ */
+export const SEARCH_CONTAINS_MIN_TERM_LENGTH = 3;
+
+/**
+ * How many candidates a match=contains search ranks: the most recently stored matches, fetched from
+ * the index in recency order so the database stops at this many however many messages match, then
+ * ranked in the application. It bounds the work of one search (ranking every match in SQL took about
+ * 100 ms on SQLite and 1.6 s on Postgres for 200k matches) and is therefore also the most `total` can
+ * report in this mode. Fixed rather than env-driven, like SEARCH_OFFSET_MAX.
+ */
+export const SEARCH_CONTAINS_WINDOW = 1000;

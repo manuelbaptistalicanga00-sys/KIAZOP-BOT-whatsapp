@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Record plugin install, update, uninstall, enable, disable and configuration changes in the audit log.
 - Add `QUEUE_PREFIX` to set the Redis key prefix of the BullMQ queues, so deployments that share a Redis stop taking each other's webhook jobs.
 - `QUEUE_PREFIX` does not separate the rate-limit store or the WebSocket fan-out.
+- Add `match=contains` to `GET /api/search`: case- and accent-insensitive substring search on a trigram index (FTS5 on SQLite, `pg_trgm` and `unaccent` on PostgreSQL) that ranks the 1,000 most recently stored matches, so `total` is at most 1,000 in this mode; `match=word` stays the default and the SDKs accept `match`. Thanks @luisffm.
+- Add the `MessageSearch` MCP tool, which runs the global message search for agents with `match=contains` by default. Thanks @luisffm.
 
 ### Changed
 

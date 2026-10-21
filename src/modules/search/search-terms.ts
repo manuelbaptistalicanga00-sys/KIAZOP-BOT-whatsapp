@@ -56,6 +56,29 @@ function wordsOf(word: string): number {
  * symbol or emoji that stands apart counts as a word of its own. A whitespace-separated word said again
  * is run once and counts once, and a word with no letter, digit or symbol counts as one.
  */
+/**
+ * Folds text the way the match=contains indexes compare it: accents dropped (NFD, then every combining
+ * mark removed, as remove_diacritics and unaccent do for Latin text) and case lowered. Used to compare
+ * terms and to place highlights, never to build SQL, which leaves folding to the database.
+ */
+export function foldSearchText(text: string): string {
+  return text.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+}
+
+/**
+ * The whitespace-separated terms of a match=contains query, each kept as written, with a term that
+ * folds to one already seen dropped (`Café cafe` is one term): it would add nothing to an AND but
+ * one more predicate per matching row.
+ */
+export function containsTerms(q: string): string[] {
+  const terms = new Map<string, string>();
+  for (const term of q.trim().split(/\s+/)) {
+    const folded = foldSearchText(term);
+    if (folded && !terms.has(folded)) terms.set(folded, term);
+  }
+  return [...terms.values()];
+}
+
 export function searchTermCount(q: string): number {
   let count = 0;
   for (const word of new Set(q.trim().split(/\s+/))) {

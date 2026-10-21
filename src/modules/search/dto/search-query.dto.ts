@@ -1,10 +1,18 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsString, IsNotEmpty, IsOptional, IsEnum, IsInt, IsNumber, Max, MaxLength, Min } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsEnum, IsIn, IsInt, IsNumber, Max, MaxLength, Min } from 'class-validator';
 import { Type } from 'class-transformer';
 import { MessageDirection } from '../../message/entities/message.entity';
 import type { MessageType } from '../../../engine/interfaces/whatsapp-engine.interface';
 import { ToStrictNumber } from '../../../common/utils/strict-boolean';
-import { SEARCH_OFFSET_MAX, SEARCH_QUERY_MAX_LENGTH, SEARCH_TERMS_MAX } from '../search.constants';
+import {
+  SEARCH_CONTAINS_MIN_TERM_LENGTH,
+  SEARCH_CONTAINS_WINDOW,
+  SEARCH_MATCH_MODES,
+  SEARCH_OFFSET_MAX,
+  SEARCH_QUERY_MAX_LENGTH,
+  SEARCH_TERMS_MAX,
+} from '../search.constants';
+import type { SearchMatch } from '../search.types';
 
 /**
  * Request shape for GET /search. Numeric fields are coerced from query-string strings via
@@ -25,6 +33,20 @@ export class SearchQueryDto {
   @IsNotEmpty()
   @MaxLength(SEARCH_QUERY_MAX_LENGTH)
   q!: string;
+
+  @ApiPropertyOptional({
+    enum: SEARCH_MATCH_MODES,
+    default: 'word',
+    description:
+      '`word` (default) matches whole words. `contains` matches any part of a word, ignoring case and ' +
+      `accents (\`voic\` finds "Invoice", \`cafe\` finds "Café"); it needs at least one term of ` +
+      `${SEARCH_CONTAINS_MIN_TERM_LENGTH} or more characters, and on PostgreSQL the pg_trgm and unaccent extensions. ` +
+      `It ranks the ${SEARCH_CONTAINS_WINDOW} most recently stored matches by match quality, so \`total\` is at most ` +
+      `${SEARCH_CONTAINS_WINDOW}.`,
+  })
+  @IsOptional()
+  @IsIn(SEARCH_MATCH_MODES)
+  match?: SearchMatch;
 
   @ApiPropertyOptional({ description: 'Restrict to a single session' })
   @IsOptional()

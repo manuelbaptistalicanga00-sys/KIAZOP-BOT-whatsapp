@@ -1430,10 +1430,18 @@ export interface SendProductRequest {
 
 // ── Search ────────────────────────────────────────────────────────
 
+/**
+ * How `q` matches: `word` (the server default) matches whole words; `contains` matches any part of a
+ * word, ignoring case and accents, and needs at least one term of 3+ characters.
+ */
+export type SearchMatch = 'word' | 'contains';
+
 /** Query parameters for `GET /search`. Only `q` is required; all filters are optional. */
 export interface SearchParams {
   /** Search term (required, non-empty — the server rejects empty/whitespace with 400). */
   q: string;
+  /** Match mode; the server defaults to `word`. */
+  match?: SearchMatch;
   /** Restrict to a single session. */
   sessionId?: string;
   /** Restrict to a single chat id. */

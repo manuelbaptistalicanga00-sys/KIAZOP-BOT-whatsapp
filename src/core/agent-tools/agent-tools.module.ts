@@ -14,6 +14,7 @@ import { GroupService } from '../../modules/group/group.service';
 import { WebhookService } from '../../modules/webhook/webhook.service';
 import { LabelService } from '../../modules/label/label.service';
 import { AutomationRulesService } from '../../modules/automation/automation-rules.service';
+import { SearchService } from '../../modules/search/search.service';
 import { allAgentTools } from './tools';
 
 @Global()
@@ -30,6 +31,8 @@ import { allAgentTools } from './tools';
         WebhookService,
         LabelService,
         AutomationRulesService,
+        // Optional: SEARCH_ENABLED=false leaves SearchModule (global, so no import here) out of the app.
+        { token: SearchService, optional: true },
       ],
       useFactory: (
         session: SessionService,
@@ -39,7 +42,11 @@ import { allAgentTools } from './tools';
         webhook: WebhookService,
         labels: LabelService,
         automation: AutomationRulesService,
-      ) => new ToolRegistryService(allAgentTools({ session, message, contact, group, webhook, labels, automation })),
+        search?: SearchService,
+      ) =>
+        new ToolRegistryService(
+          allAgentTools({ session, message, contact, group, webhook, labels, automation, search }),
+        ),
     },
   ],
   exports: [ToolRegistryService],

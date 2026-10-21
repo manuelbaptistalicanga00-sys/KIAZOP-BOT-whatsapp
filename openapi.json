@@ -17871,6 +17871,19 @@
             }
           },
           {
+            "name": "match",
+            "required": false,
+            "in": "query",
+            "description": "word (default): whole words. contains: any part of a word, ignoring case and accents; ranks the 1000 most recently stored matches by match quality",
+            "schema": {
+              "enum": [
+                "word",
+                "contains"
+              ],
+              "type": "string"
+            }
+          },
+          {
             "name": "sessionId",
             "required": false,
             "in": "query",
@@ -17971,7 +17984,7 @@
             }
           },
           "400": {
-            "description": "Empty or whitespace-only \"q\", or one over 1000 characters or 32 words",
+            "description": "Empty or whitespace-only \"q\", or one over 1000 characters or 32 words; an unknown \"match\"; or a \"match=contains\" query whose terms are all shorter than 3 characters",
             "content": {
               "application/json": {
                 "schema": {
@@ -18001,7 +18014,7 @@
             }
           },
           "501": {
-            "description": "No search provider configured",
+            "description": "No search provider configured, or the built-in provider lacks the index the requested match mode needs (for \"match=contains\" on PostgreSQL: the pg_trgm and unaccent extensions)",
             "content": {
               "application/json": {
                 "schema": {

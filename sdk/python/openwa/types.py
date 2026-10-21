@@ -1453,9 +1453,12 @@ class _SearchQueryRequired(TypedDict):
     q: str
 
 
+# `match` is "word" (the server default: whole words) or "contains" (any part
+# of a word, ignoring case and accents; needs a term of 3+ characters).
 _SearchQueryOptional = TypedDict(
     "_SearchQueryOptional",
     {
+        "match": Literal["word", "contains"],
         "sessionId": str,
         "chatId": Jid,
         "direction": MessageDirection,

@@ -78,6 +78,12 @@ describe('SearchQueryDto', () => {
     expect(validateSync(dto)).toHaveLength(0);
   });
 
+  it('accepts both match modes and rejects any other value', () => {
+    expect(validateSync(fromQuery({ q: 'hello', match: 'word' }))).toHaveLength(0);
+    expect(validateSync(fromQuery({ q: 'hello', match: 'contains' }))).toHaveLength(0);
+    expect(validateSync(fromQuery({ q: 'hello', match: 'fuzzy' })).some(e => e.property === 'match')).toBe(true);
+  });
+
   // @nestjs/swagger derives no bounds from @IsInt/@Min/@Max, so the decorator has to state them.
   it('publishes limit and offset as bounded integers', () => {
     const published = (key: string): unknown =>

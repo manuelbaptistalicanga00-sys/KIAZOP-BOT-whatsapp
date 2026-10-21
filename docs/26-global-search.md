@@ -65,6 +65,54 @@ HTML-escaped: split on the literal `<mark>`/`</mark>` markers and render each se
 dashboard does this with `renderHighlightedSnippet` in `dashboard/src/utils/search-highlight.ts`), and
 never assign the raw snippet to `innerHTML`.
 
+### Match modes
+
+The `match` query parameter picks how `q` matches a message body. Each mode has its own DB-maintained
+index, so both are index lookups, never table scans:
+
+| `match`          | Matches                                                                                                      | Index                                                                                                                                    | Ranking                                                    |
+| ---------------- | ------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| `word` (default) | whole words, as described above                                                                              | `body_ts` (Postgres) / `messages_fts` (SQLite)                                                                                           | `ts_rank` / FTS5 `rank`, over every match                  |
+| `contains`       | any part of a word of 3+ characters, ignoring case and accents (`voic` finds "Invoice", `cafe` finds "Café") | a `pg_trgm` GIN index on `openwa_unaccent(body)` (Postgres) / an FTS5 `trigram` table with `remove_diacritics`, `messages_trgm` (SQLite) | match quality, over the 1,000 most recently stored matches |
+
+`contains` finds everything `word` finds, plus partial words. Every whitespace-separated term must
+appear, as with `word`; a repeated term (also one that differs only in case or accents) runs once. A
+trigram index cannot look up a term shorter than three characters, so such a term (`id`, `pm`) only
+narrows what a longer term found, and a query made of short terms alone answers `400`. The query
+grammar of `word` mode (quoted phrases, `OR`, `-` on Postgres) does not apply: every term, `%` and `_`
+included, matches literally.
+
+**Ranking runs in two phases.** Ranking every match in SQL costs time in proportion to the number of
+matches: measured on 1M messages with a term found in 200k of them, about 100 ms on SQLite (where that
+time blocks the event loop every session shares) and 1.6 s on Postgres. So `contains` bounds the work:
+
+1. The database returns at most **1,000 candidates**: the most recently stored messages that contain
+   every term, newest first. Both dialects answer that order from an index and stop at 1,000, however
+   many messages match. SQLite reads its trigram index in insertion order; Postgres walks the
+   `idx_messages_created_at_id` b-tree backward for a common term, or reads the few matches of a rare
+   one from the GIN index.
+2. The application ranks the candidates and pages them: each term scores **3** as a whole word, **2**
+   at the start of a word and **1** inside a word (compared without case or accents), the hit's `score`
+   is the sum over the terms, and ties go to the newest message, then to `messageId`. The same code
+   ranks both dialects, so they return the same order.
+
+Both phases together take about 2 ms on SQLite and 10 to 20 ms on Postgres at that size. The trade-off is that relevance orders the window, not the whole history: `total` is at most
+1,000 in this mode, and pages past it are empty. Reach older matches by narrowing the query (more
+terms, `chatId`, `dateTo`). Because a score reads only its own message, it is returned to scoped keys
+as well (unlike the SQLite `word` score, see below).
+
+A `contains` snippet is built by the application rather than the database (FTS5's `snippet()` counts
+its window in trigrams, and Postgres has no headline function for a substring), so both dialects return
+the same text, under the same `<mark>` contract and the same "not HTML-escaped" rule.
+
+**Requirements.** On SQLite, `contains` needs FTS5 and SQLite 3.45+ (the first with `remove_diacritics`
+for the trigram tokenizer); the bundled `better-sqlite3` ships both. On Postgres it needs the
+`pg_trgm` and `unaccent` extensions, which the migration creates when the database role may (both are
+trusted extensions from PostgreSQL 13, so a database owner can). When it may not, the migration skips
+them without failing the boot, only `match=contains` answers `501` (with the `CREATE EXTENSION`
+statements to run), and `match=word` keeps working; once an operator installs the extensions, the next
+boot builds the wrapper function and the indexes.
+
 ## 26.4 Dual-database switching safety
 
 Search is designed to work identically on SQLite and PostgreSQL and to survive repeated switching
@@ -129,9 +177,12 @@ See [06 - API Specification §6.4.12](./06-api-specification.md) for the full pa
 In brief:
 
 ```
-GET /api/search?q=<term>&sessionId=<id>&chatId=<id>&direction=<incoming|outgoing>&type=<type>
-            &from=<sender>&dateFrom=<ms>&dateTo=<ms>&limit=<n>&offset=<n>
+GET /api/search?q=<term>&match=<word|contains>&sessionId=<id>&chatId=<id>&direction=<incoming|outgoing>
+            &type=<type>&from=<sender>&dateFrom=<ms>&dateTo=<ms>&limit=<n>&offset=<n>
 ```
+
+- **`match`** is `word` (the default) or `contains`; see [Match modes](#match-modes). Any other value
+  is a `400`.
 
 - **`q`** is required and must be non-empty (whitespace-only is rejected with `400`, and so is one
   longer than 1000 characters or with more than 32 words, punctuation separating words as whitespace does and a symbol or emoji that stands apart counting as one; a whitespace-separated word said again counts once). Numeric params
@@ -145,18 +196,21 @@ GET /api/search?q=<term>&sessionId=<id>&chatId=<id>&direction=<incoming|outgoing
 - **Chat scope applies the same way.** A key with a non-empty `allowedChats` searches only those
   chats: the built-in provider narrows its hits before `limit`, `offset` and `total` apply, an explicit
   `chatId` outside the allowlist answers `403`, and a plugin provider answers `403` for such a key
-  (set `SEARCH_PROVIDER=builtin-fts` to allow scoped search). On SQLite the hits of a key scoped to
-  sessions or chats carry no `score`, because the value is computed over the whole index and would
-  reflect messages outside its scope; the hits stay in relevance order.
+  (set `SEARCH_PROVIDER=builtin-fts` to allow scoped search). On SQLite the `match=word` hits of a key
+  scoped to sessions or chats carry no `score`, because the value is computed over the whole index and
+  would reflect messages outside its scope; the hits stay in relevance order. A `match=contains` score
+  reads only its own message, so every key gets it.
 - **Response** is a `SearchResults` object: `{ hits: SearchHit[], total, tookMs, provider }`. Each hit
   carries `messageId`, `waMessageId`, `sessionId`, `chatId`, `body`, `snippet`, `timestamp`, `type`,
   `direction`, `from`, and optional `score`. `total` is an exact count (bounded; computed lazily only
   when the page could be full). `tookMs` is the provider-side query time. `provider` names which
   backend answered (e.g. `builtin-fts`).
-- **Errors:** `400` empty/whitespace `q` or a non-numeric numeric param (an FTS5 query-grammar error is
-  also mapped to `400`, but since the SQLite path quotes every token ordinary input no longer reaches
+- **Errors:** `400` empty/whitespace `q`, a non-numeric numeric param, an unknown `match`, or a
+  `match=contains` query whose terms are all shorter than three characters (an FTS5 query-grammar error
+  is also mapped to `400`, but since the SQLite path quotes every token ordinary input no longer reaches
   that fallback) · `401`/`403` auth · `501` no provider configured / FTS schema absent (e.g. a non-FTS5
-  SQLite build) · `502` a plugin provider returned a malformed `SearchResults` payload · `503` a plugin
+  SQLite build) / for `match=contains`, the trigram index absent (e.g. Postgres without `pg_trgm` and
+  `unaccent`) · `502` a plugin provider returned a malformed `SearchResults` payload · `503` a plugin
   provider whose worker timed out or failed (the built-in provider does not return it).
 
 The endpoint requires at least `OPERATOR` role.
@@ -164,9 +218,9 @@ The endpoint requires at least `OPERATOR` role.
 ## 26.7 When to use a plugin backend
 
 The built-in DB full-text provider is the right default for the common case: moderate volume, Latin and
-mixed-Script text, whole-token matching (phrase and boolean operators only on Postgres — see §26.3),
-and no extra infrastructure. Reach for a plugin provider when you need capabilities the SQL engines do
-not give you:
+mixed-Script text, whole-token matching (phrase and boolean operators only on Postgres — see §26.3) or
+case- and accent-insensitive substring matching (`match=contains`), and no extra infrastructure. Reach
+for a plugin provider when you need capabilities the SQL engines do not give you:
 
 - **CJK word-segmentation and morphological analysis** — Postgres `'simple'` and SQLite FTS5 tokenize
   on whitespace/punctuation, which does not segment Chinese/Japanese/Korean. A dedicated engine
@@ -211,6 +265,20 @@ Adding search to an existing deployment runs the one-time `1782400000000-AddMess
 
 The migration is safe to re-run (idempotent guards) and has a `down` path that drops the FTS schema on
 both dialects. After it applies, search works immediately — no separate reindex command.
+
+`match=contains` adds the one-time `1792400000000-AddMessagesTrigramSearch` migration:
+
+- **PostgreSQL** creates the `pg_trgm` and `unaccent` extensions inside a savepoint (a role that may
+  not create them rolls back to it and the migration stops there, see [Match modes](#match-modes)), the
+  IMMUTABLE `openwa_unaccent(text)` wrapper, a `GIN` trigram index on `openwa_unaccent(body)` and the
+  `idx_messages_created_at_id` b-tree on `("createdAt", "id")` that serves the candidate window (the
+  existing message indexes all lead with `sessionId`). Both are built **non-`CONCURRENTLY`**: plan a
+  maintenance window for a very large table.
+- **SQLite** creates the `messages_trgm` FTS5 trigram table, backfills it like `messages_fts` and
+  installs its own three sync triggers. A trigram index holds every three-character window of the
+  body, so it takes noticeably more space than the word index.
+
+Its `down` path drops what it created except the Postgres extensions, which other objects may use.
 
 ---
 

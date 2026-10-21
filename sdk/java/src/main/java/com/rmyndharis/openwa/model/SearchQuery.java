@@ -10,6 +10,7 @@ package com.rmyndharis.openwa.model;
  */
 public record SearchQuery(
     String q,
+    SearchMatch match,
     String sessionId,
     String chatId,
     MessageDirection direction,
@@ -25,6 +26,7 @@ public record SearchQuery(
 
     public static final class Builder {
         private String q;
+        private SearchMatch match;
         private String sessionId;
         private String chatId;
         private MessageDirection direction;
@@ -38,6 +40,12 @@ public record SearchQuery(
         /** Required. The search term; must be non-empty at {@link #build()} time. */
         public Builder q(String v) {
             this.q = v;
+            return this;
+        }
+
+        /** Match mode; the server defaults to {@link SearchMatch#WORD} when omitted. */
+        public Builder match(SearchMatch v) {
+            this.match = v;
             return this;
         }
 
@@ -87,7 +95,7 @@ public record SearchQuery(
         }
 
         public SearchQuery build() {
-            return new SearchQuery(q, sessionId, chatId, direction, type, from, dateFrom, dateTo, limit, offset);
+            return new SearchQuery(q, match, sessionId, chatId, direction, type, from, dateFrom, dateTo, limit, offset);
         }
     }
 }

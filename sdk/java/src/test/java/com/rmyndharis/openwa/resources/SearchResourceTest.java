@@ -11,6 +11,7 @@ import com.rmyndharis.openwa.OpenWAClient;
 import com.rmyndharis.openwa.http.HttpMethod;
 import com.rmyndharis.openwa.model.MessageDirection;
 import com.rmyndharis.openwa.model.SearchHit;
+import com.rmyndharis.openwa.model.SearchMatch;
 import com.rmyndharis.openwa.model.SearchQuery;
 import com.rmyndharis.openwa.model.SearchResults;
 import com.rmyndharis.openwa.support.MockTransport;
@@ -46,6 +47,13 @@ class SearchResourceTest {
             SearchQuery.builder().q("hi").direction(MessageDirection.INCOMING).build());
         // The enum must serialize via its @SerializedName, not the constant name.
         assertTrue(tx.lastRequest().url().contains("direction=incoming"));
+    }
+
+    @Test
+    void searchSerializesMatchAsLowercaseWireValue() {
+        tx.respond(200, RESULTS);
+        client.search.search(SearchQuery.builder().q("voic").match(SearchMatch.CONTAINS).build());
+        assertTrue(tx.lastRequest().url().contains("match=contains"));
     }
 
     @Test

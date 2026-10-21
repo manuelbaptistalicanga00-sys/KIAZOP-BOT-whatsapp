@@ -4,6 +4,7 @@ import 'reflect-metadata';
 import { DataSource } from 'typeorm';
 import { BuiltInFtsProvider } from '../../../modules/search/providers/builtin-fts.provider';
 import { AddMessagesFts1782400000000 } from '../1782400000000-AddMessagesFts';
+import { AddMessagesTrigramSearch1792400000000 } from '../1792400000000-AddMessagesTrigramSearch';
 
 /**
  * Postgres runtime coverage for BuiltInFtsProvider. Companion to the SQLite spec
@@ -51,6 +52,9 @@ const POSTGRES_ENABLED = process.env.DATABASE_TYPE === 'postgres';
     // Adds the STORED generated `body_ts` tsvector + the GIN index — the exact objects the provider
     // relies on; running the migration (not hand-rolling DDL) is the point of this test.
     await new AddMessagesFts1782400000000().up(ds.createQueryRunner());
+    // The rest of the search chain, so the boot self-heal tests below see what a migrations-based
+    // deployment has: with the trigram objects missing, the provider would rightly build them at boot.
+    await new AddMessagesTrigramSearch1792400000000().up(ds.createQueryRunner());
 
     provider = new BuiltInFtsProvider(ds);
 

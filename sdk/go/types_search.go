@@ -3,9 +3,12 @@ package openwa
 import "net/url"
 
 // SearchQuery is the query for GET /search. Q is required; all else optional.
-// DateFrom/DateTo are epoch-ms.
+// DateFrom/DateTo are epoch-ms. Match is "word" (the server default: whole
+// words) or "contains" (any part of a word, ignoring case and accents; needs a
+// term of 3+ characters).
 type SearchQuery struct {
 	Q         string
+	Match     *string
 	SessionID *string
 	ChatID    *string
 	Direction *string
@@ -20,6 +23,7 @@ type SearchQuery struct {
 func (q *SearchQuery) values() url.Values {
 	v := url.Values{}
 	v.Set("q", q.Q)
+	setStr(v, "match", q.Match)
 	setStr(v, "sessionId", q.SessionID)
 	setStr(v, "chatId", q.ChatID)
 	setStr(v, "direction", q.Direction)
